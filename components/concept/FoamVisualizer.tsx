@@ -475,6 +475,25 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
       cutters.push(makeCutterMesh(THREE,
         new THREE.CylinderGeometry(rX + 0.5, rX + 0.5, depth + 1, 64),
         {x: offX, y: cutCY, z: offZ}, {x: 1, y: 1, z: rZ / rX}));
+    } else if (shape === 'l_shaped' || shape === 't_shaped' || shape === 'stepped') {
+      // v25.51: L/T/stepped = two-rectangle union. Primary rect + secondary rect from dim.secondary.
+      const pL1 = dv(dim, 'length', 'width') || 60;
+      const pW1 = dv(dim, 'width', 'length') || 60;
+      cutters.push(makeCutterMesh(THREE,
+        new THREE.BoxGeometry(pL1 + 1, depth + 1, pW1 + 1),
+        {x: offX, y: cutCY, z: offZ}));
+      const _sec = dim.secondary ?? {};
+      const pL2 = dv(_sec, 'length', 'width') || 0;
+      const pW2 = dv(_sec, 'width', 'length') || 0;
+      if (pL2 > 0 && pW2 > 0) {
+        const dep2 = Math.min(dv(_sec, 'depth') || dv(dim, 'depth') || 20, H * 0.95);
+        const ox2 = offX + (_sec.offset_x ?? 0);
+        const oz2 = offZ + (_sec.offset_z ?? 0);
+        const cutCY2 = cfY - s2 * (dep2 / 2);
+        cutters.push(makeCutterMesh(THREE,
+          new THREE.BoxGeometry(pL2 + 1, dep2 + 1, pW2 + 1),
+          {x: ox2, y: cutCY2, z: oz2}));
+      }
     } else {
       const pL = dv(dim, 'length', 'width') || 60;
       const pW = dv(dim, 'width', 'length') || 60;
@@ -571,7 +590,23 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     const s2    = cd ? 1 : -1;
     const cfY   = s2 * H / 2;
     const depth = Math.min(dv(dim, 'depth') || 20, H * 0.95);
-    addCavityLiner(THREE, grp, shape, dim, offX, offZ, cfY, s2, depth, foamColor);
+    if (shape === 'l_shaped' || shape === 't_shaped' || shape === 'stepped') {
+      // v25.51: two-rectangle liner for L/T/stepped shapes
+      const pL1 = dv(dim, 'length', 'width') || 60;
+      const pW1 = dv(dim, 'width', 'length') || 60;
+      addCavityLiner(THREE, grp, 'rectangular', { length: pL1, width: pW1 }, offX, offZ, cfY, s2, depth, foamColor);
+      const _sec = dim.secondary ?? {};
+      const pL2 = dv(_sec, 'length', 'width') || 0;
+      const pW2 = dv(_sec, 'width', 'length') || 0;
+      if (pL2 > 0 && pW2 > 0) {
+        const dep2 = Math.min(dv(_sec, 'depth') || depth, H * 0.95);
+        const ox2 = offX + (_sec.offset_x ?? 0);
+        const oz2 = offZ + (_sec.offset_z ?? 0);
+        addCavityLiner(THREE, grp, 'rectangular', { length: pL2, width: pW2 }, ox2, oz2, cfY, s2, dep2, foamColor);
+      }
+    } else {
+      addCavityLiner(THREE, grp, shape, dim, offX, offZ, cfY, s2, depth, foamColor);
+    }
   });
 
   // Slot liners (includes relief directional channels)
@@ -1307,14 +1342,6 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
           const _sW = np.plank_dimensions_mm?.width  ?? 400;
           const _sH = np.plank_dimensions_mm?.height ?? 50;
           const sl = _sL * 0.997, sw = _sW * 0.997;
-          const rH = 10; // 10mm ribbon height — clearly visible seam between foam pieces
-          const seamMat = new THREE.MeshBasicMaterial({ color: dark(THREE, foamColor, 0.28), side: THREE.DoubleSide });
-          const addPanel = (bx: number, by: number, bz: number, cx: number, cy: number, cz: number) => {
-            const rm = new THREE.Mesh(new THREE.BoxGeometry(bx, by, bz), seamMat);
-            rm.position.set(cx, cy, cz);
-            rm.frustumCulled = false; rm.renderOrder = 5;
-            scene.add(rm); objectsRef.current.push(rm);
-          };
 
           if (_sFace === 'bottom' || _sFace === 'top') {
             // Physical interface Y = inboard face of the outboard (cap) piece
@@ -1331,25 +1358,29 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
               const _sPrevPosY = (carton.z / 2) + _gap - _sPrevLayOff - _sPrevH / 2;
               jY = _sPrevPosY - _sPrevH / 2;
             }
-            // v25.49: cylinder/elliptic → left+right only; prismatic → all 4 panels.
-            // Front/back panels would cross the barrel as horizontal bands on cylinders.
-            const _isCyl = ((json.product_visual?.geometry_class ?? json.meta?.geometry_class ?? '') + '')
-              .toLowerCase().includes('cylindr') ||
-              ((json.product_visual?.geometry_class ?? json.meta?.geometry_class ?? '') + '')
-              .toLowerCase().includes('elliptic');
-            // v25.49: clip panel spans at chamfer corners — prevents triangular protrusions
-            // beyond the octagonal body profile at each corner of the seam ribbon.
+            // v25.51: octagonal LINE ring at jY traces the exact plank perimeter shape.
+            // Replaces BoxGeometry panels which had visible top faces creating flat
+            // protrusions at chamfer corners from isometric camera angles.
             const _seamSch = (np.cut_features || []).find((c: any) => c.plan_chamfer === true);
             const _seamScX = _seamSch ? (dv(_seamSch.dimensions_mm ?? {}, 'length', 'width') || 0) : 0;
             const _seamScZ = _seamSch ? (dv(_seamSch.dimensions_mm ?? {}, 'width', 'length') || 0) : 0;
-            const _slClip = (_sL - 2 * _seamScX) * 0.997; // front/back X-span clipped at chamfers
-            const _swClip = (_sW - 2 * _seamScZ) * 0.997; // left/right Z-span clipped at chamfers
-            addPanel(rH, rH, _swClip, pos[0]+sl/2,   jY, pos[2]); // right edge
-            addPanel(rH, rH, _swClip, pos[0]-sl/2,   jY, pos[2]); // left edge
-            if (!_isCyl) {
-              addPanel(_slClip, rH, rH, pos[0], jY, pos[2]+sw/2); // front edge (extends in X)
-              addPanel(_slClip, rH, rH, pos[0], jY, pos[2]-sw/2); // back edge  (extends in X)
-            }
+            const _srHX = sl / 2, _srHZ = sw / 2;
+            const _srCX = _seamScX > 0 ? Math.min(_seamScX, _srHX * 0.44) : 0;
+            const _srCZ = _seamScZ > 0 ? Math.min(_seamScZ, _srHZ * 0.44) : 0;
+            const _ringPts2D: [number, number][] = _srCX > 0
+              ? [[-_srHX+_srCX,-_srHZ],[_srHX-_srCX,-_srHZ],[_srHX,-_srHZ+_srCZ],[_srHX,_srHZ-_srCZ],
+                 [_srHX-_srCX,_srHZ],[-_srHX+_srCX,_srHZ],[-_srHX,_srHZ-_srCZ],[-_srHX,-_srHZ+_srCX]]
+              : [[-_srHX,-_srHZ],[_srHX,-_srHZ],[_srHX,_srHZ],[-_srHX,_srHZ]];
+            const _ringPts3D = _ringPts2D.map(([rx, rz]) => new THREE.Vector3(pos[0] + rx, jY, pos[2] + rz));
+            _ringPts3D.push(_ringPts3D[0].clone());
+            const _seamLine = new THREE.Line(
+              new THREE.BufferGeometry().setFromPoints(_ringPts3D),
+              new THREE.LineBasicMaterial({ color: dark(THREE, foamColor, 0.28) })
+            );
+            _seamLine.frustumCulled = false;
+            _seamLine.renderOrder = 6;
+            scene.add(_seamLine);
+            objectsRef.current.push(_seamLine);
 
           } else if (_sFace === 'left' || _sFace === 'end_left' || _sFace === 'right' || _sFace === 'end_right') {
             // v25.48: side-face seam — octagonal LINE ring in the YZ-plane at the
@@ -1444,7 +1475,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.49 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.51 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
