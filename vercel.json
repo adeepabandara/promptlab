@@ -1,0 +1,14 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "functions": {
+    "app/api/concept/run/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/image/run/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

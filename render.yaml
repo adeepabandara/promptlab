@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: foam-render-server
+    runtime: docker
+    dockerfilePath: python/Dockerfile
+    dockerContext: python
+    plan: starter               # $7/mo — free tier sleeps after 15min
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "5001"
+      - key: RENDER_ENGINE
+        value: CYCLES           # CPU Cycles — no display needed; switch to EEVEE if Xvfb works
+      - key: RENDER_SAMPLES
+        value: "64"
+      - key: RENDER_SECRET
+        generateValue: true
