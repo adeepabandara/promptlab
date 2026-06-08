@@ -1328,6 +1328,58 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
         bondLine2.frustumCulled = false;
         grp.add(bondLine2);
       }
+      // v25.53: Outboard face dark cover — dark octagonal plane at carton-wall face of
+      // outboard/single pieces. Prevents the bottom slab appearing as a floating grey rectangle.
+      {
+        const _dcAsmId = np.assembly_id || np.id;
+        const _dcAsmPcs = (assemblyGroups[_dcAsmId] ?? []).map(normalisePiece);
+        const _dcSorted = [..._dcAsmPcs].sort((a: any, b: any) => (a.layer_offset_from_face_mm || 0) - (b.layer_offset_from_face_mm || 0));
+        const _dcIdx = _dcSorted.findIndex((p: any) => (p.layer_offset_from_face_mm || 0) === (np.layer_offset_from_face_mm || 0));
+        if (_dcAsmPcs.length <= 1 || _dcIdx === 0) {
+          const _dcFace = (np.face ?? '').toLowerCase();
+          const _dcL = np.plank_dimensions_mm?.length ?? 400;
+          const _dcW = np.plank_dimensions_mm?.width  ?? 400;
+          const _dcH = np.plank_dimensions_mm?.height ?? 50;
+          const _dcSch = (np.cut_features || []).find((c: any) => c.plan_chamfer === true);
+          const _dcCX = _dcSch ? (dv(_dcSch.dimensions_mm ?? {}, 'length', 'width') || 0) : 0;
+          const _dcCZ = _dcSch ? (dv(_dcSch.dimensions_mm ?? {}, 'width', 'length') || 0) : 0;
+          const _dcHX = _dcL * 0.998 / 2, _dcHZ = _dcW * 0.998 / 2;
+          const _dcCXc = _dcCX > 0 ? Math.min(_dcCX, _dcHX * 0.44) : 0;
+          const _dcCZc = _dcCZ > 0 ? Math.min(_dcCZ, _dcHZ * 0.44) : 0;
+          const _dcPts: [number, number][] = _dcCXc > 0
+            ? [[-_dcHX+_dcCXc,-_dcHZ],[_dcHX-_dcCXc,-_dcHZ],[_dcHX,-_dcHZ+_dcCZc],[_dcHX,_dcHZ-_dcCZc],
+               [_dcHX-_dcCXc,_dcHZ],[-_dcHX+_dcCXc,_dcHZ],[-_dcHX,_dcHZ-_dcCZc],[-_dcHX,-_dcHZ+_dcCXc]]
+            : [[-_dcHX,-_dcHZ],[_dcHX,-_dcHZ],[_dcHX,_dcHZ],[-_dcHX,_dcHZ]];
+          const _dcVs: number[] = [];
+          for (const [rx, rz] of _dcPts) _dcVs.push(rx, 0, rz);
+          const _dcN2 = _dcPts.length;
+          const _dcIx: number[] = [];
+          for (let _i = 1; _i < _dcN2 - 1; _i++) _dcIx.push(0, _i, _i + 1);
+          const _dcGeo = new THREE.BufferGeometry();
+          _dcGeo.setAttribute('position', new THREE.Float32BufferAttribute(_dcVs, 3));
+          _dcGeo.setIndex(_dcIx);
+          _dcGeo.computeVertexNormals();
+          const _dcMat = new THREE.MeshBasicMaterial({ color: dark(THREE, foamColor, 0.18), side: THREE.FrontSide });
+          const _dcMesh = new THREE.Mesh(_dcGeo, _dcMat);
+          _dcMesh.renderOrder = 0;
+          _dcMesh.frustumCulled = false;
+          if (_dcFace === 'bottom') {
+            _dcMesh.rotation.set(-Math.PI / 2, 0, 0);
+            _dcMesh.position.set(pos[0], pos[1] - _dcH / 2 + 0.1, pos[2]);
+          } else if (_dcFace === 'top') {
+            _dcMesh.rotation.set(-Math.PI / 2, 0, 0);
+            _dcMesh.position.set(pos[0], pos[1] + _dcH / 2 - 0.1, pos[2]);
+          } else if (_dcFace === 'left' || _dcFace === 'end_left') {
+            _dcMesh.rotation.set(Math.PI / 2, -Math.PI / 2, 0);
+            _dcMesh.position.set(pos[0] - _dcH / 2 + 0.1, pos[1], pos[2]);
+          } else if (_dcFace === 'right' || _dcFace === 'end_right') {
+            _dcMesh.rotation.set(Math.PI / 2, Math.PI / 2, 0);
+            _dcMesh.position.set(pos[0] + _dcH / 2 - 0.1, pos[1], pos[2]);
+          }
+          scene.add(_dcMesh);
+          objectsRef.current.push(_dcMesh);
+        }
+      }
       // Seam ribbon (v25.38): 4 BoxGeometry panels forming a 4mm-tall perimeter ribbon
       // at the cap/cavity interface. Physical thickness = visible from ALL camera angles,
       // including edge-on views where a zero-width Line disappears entirely.
@@ -1475,7 +1527,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.51 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.53 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
