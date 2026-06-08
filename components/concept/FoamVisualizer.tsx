@@ -1331,17 +1331,24 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
               const _sPrevPosY = (carton.z / 2) + _gap - _sPrevLayOff - _sPrevH / 2;
               jY = _sPrevPosY - _sPrevH / 2;
             }
-            // v25.48: cylinder/elliptic → left+right only; prismatic → all 4 panels.
+            // v25.49: cylinder/elliptic → left+right only; prismatic → all 4 panels.
             // Front/back panels would cross the barrel as horizontal bands on cylinders.
             const _isCyl = ((json.product_visual?.geometry_class ?? json.meta?.geometry_class ?? '') + '')
               .toLowerCase().includes('cylindr') ||
               ((json.product_visual?.geometry_class ?? json.meta?.geometry_class ?? '') + '')
               .toLowerCase().includes('elliptic');
-            addPanel(rH, rH, sw,  pos[0]+sl/2,   jY, pos[2]); // right edge
-            addPanel(rH, rH, sw,  pos[0]-sl/2,   jY, pos[2]); // left edge
+            // v25.49: clip panel spans at chamfer corners — prevents triangular protrusions
+            // beyond the octagonal body profile at each corner of the seam ribbon.
+            const _seamSch = (np.cut_features || []).find((c: any) => c.plan_chamfer === true);
+            const _seamScX = _seamSch ? (dv(_seamSch.dimensions_mm ?? {}, 'length', 'width') || 0) : 0;
+            const _seamScZ = _seamSch ? (dv(_seamSch.dimensions_mm ?? {}, 'width', 'length') || 0) : 0;
+            const _slClip = (_sL - 2 * _seamScX) * 0.997; // front/back X-span clipped at chamfers
+            const _swClip = (_sW - 2 * _seamScZ) * 0.997; // left/right Z-span clipped at chamfers
+            addPanel(rH, rH, _swClip, pos[0]+sl/2,   jY, pos[2]); // right edge
+            addPanel(rH, rH, _swClip, pos[0]-sl/2,   jY, pos[2]); // left edge
             if (!_isCyl) {
-              addPanel(rH, rH, sl,  pos[0], jY, pos[2]+sw/2); // front edge
-              addPanel(rH, rH, sl,  pos[0], jY, pos[2]-sw/2); // back edge
+              addPanel(_slClip, rH, rH, pos[0], jY, pos[2]+sw/2); // front edge (extends in X)
+              addPanel(_slClip, rH, rH, pos[0], jY, pos[2]-sw/2); // back edge  (extends in X)
             }
 
           } else if (_sFace === 'left' || _sFace === 'end_left' || _sFace === 'right' || _sFace === 'end_right') {
@@ -1437,7 +1444,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.48 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.49 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
