@@ -209,12 +209,11 @@ function makeOctagonalPrism(THREE: any, lenX: number, lenZ: number, height: numb
   const idx: number[] = [];
   for (let i = 0; i < N; i++) {
     const a = i, b = (i + 1) % N, c = i + N, d = b + N;
-    idx.push(a, b, d,  a, d, c); // side quad → 2 triangles
+    idx.push(a, d, b,  a, c, d); // side quad — outward normals (FrontSide)
   }
-  // v25.61: standard top cap winding (N, N+i, N+i+1) — body uses DoubleSide so
-  // Three.js auto-flips normals for back-face Phong, correct lighting without reversal.
-  for (let i = 1; i < N - 1; i++) idx.push(N, N + i, N + i + 1); // top cap (standard)
-  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap (CW)
+  // v25.64: FrontSide material — top cap winding reversed for +Y normal (visible from above).
+  for (let i = 1; i < N - 1; i++) idx.push(N, N + i + 1, N + i); // top cap reversed = +Y normal
+  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setIndex(idx);
@@ -1237,14 +1236,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
       // Disable frustum culling — prevents objects vanishing when zoomed in
       // with an orthographic camera (narrow frustum clips bounding spheres)
       grp.traverse((obj:any)=>{ obj.frustumCulled = false; });
-      // All planks: body mesh gets DoubleSide so foam reads as solid from any camera angle (v25.13).
-      // Wall/floor materials excluded via polygonOffset flag — DoubleSide on liners caused transparency.
-      grp.traverse((child: any) => {
-        if (child.isMesh && child.material && !child.material.polygonOffset) {
-          child.material = child.material.clone();
-          child.material.side = THREE.DoubleSide;
-        }
-      });
+      // v25.64: FrontSide body with correct outward windings — no DoubleSide traverse needed.
       scene.add(grp); objectsRef.current.push(grp);
       // Face border outlines (v25.35): only on OUTERMOST exposed faces per assembly.
       // Outboard piece → outboard face border only.
@@ -1522,7 +1514,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.63 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.64 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
