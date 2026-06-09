@@ -157,8 +157,8 @@ function foamMat(THREE: any, foamColor: string) {
   if (lum > 0.94) c2.multiplyScalar(0.94 / lum);
   return new THREE.MeshPhongMaterial({
     color: c2,
-    specular: new THREE.Color(0.12, 0.11, 0.10),
-    shininess: 18,
+    specular: new THREE.Color(0.04, 0.04, 0.03),
+    shininess: 4,
   });
 }
 
@@ -1108,9 +1108,12 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
       const scene=new THREE.Scene();
       // 3-light rig (v25): high-intensity neutral sun + cool-tinted fill + warm rim.
       // The blue fill creates cold/warm contrast that makes foam depth read more clearly.
-      scene.add(new THREE.AmbientLight(0xFFF8EE,0.60)); // v25.23: ambient lifted slightly for better readability
-      const d1=new THREE.DirectionalLight(0xFFFFFF,0.90); d1.position.set(1,2,1.5); d1.castShadow=true; scene.add(d1);
-      const d2=new THREE.DirectionalLight(0xE8F0FF,0.35); d2.position.set(-1,0.5,-1); scene.add(d2);
+      // v25.63: reduced ambient so side walls read clearly darker than top face
+      scene.add(new THREE.AmbientLight(0xFFF8EE,0.35));
+      // Strong sun from upper-right: top face (+Y normal) gets maximum light
+      const d1=new THREE.DirectionalLight(0xFFFFFF,1.10); d1.position.set(1,2.5,1.5); d1.castShadow=true; scene.add(d1);
+      // Weak fill from upper-left-back: prevents pure black on back faces
+      const d2=new THREE.DirectionalLight(0xE8F0FF,0.20); d2.position.set(-1,1,-1); scene.add(d2);
       // v25.42: rim light from below removed — caused cylinder underside to appear as phantom rectangle
       sceneRef.current=scene;
     }
@@ -1519,7 +1522,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.61 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.63 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
