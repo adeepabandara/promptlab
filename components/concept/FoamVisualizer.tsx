@@ -376,7 +376,7 @@ function addCavityLiner(
 // Pass 1: bake each cutter's position/scale into its geometry, then
 //         run CSG subtraction in a common local space (no matrixWorld issues).
 // Pass 2: add interior liner meshes so cavities have visible dark surfaces.
-function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: string, contactFaceUp: boolean, cuts: any[]) {
+function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: string, contactFaceUp: boolean, cuts: any[], pieceFace?: string) {
   // v25.43: normalise LLM cut-type aliases → canonical types before any classification.
   // Some models emit 'locating_pocket' or 'seating_pocket' instead of 'clearance_pocket'.
   cuts = cuts.map((c: any) => {
@@ -384,6 +384,12 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     if (t === 'locating_pocket' || t === 'seating_pocket') return { ...c, type: 'clearance_pocket' };
     return c;
   });
+
+  // v25.55: 'inner' in a cut face string should only override pocket direction for
+  // side-face pieces (left/right/front/back). For top/bottom pieces some LLMs write
+  // "inner — product-contact face (top of slab)" which must NOT flip the direction.
+  const _sideFaceSet = new Set(['left','right','end_left','end_right','front','back','end_front','end_back']);
+  const _isSidePiece = _sideFaceSet.has((pieceFace ?? '').toLowerCase());
 
   const grp = new THREE.Group();
   const fm  = foamMat(THREE, foamColor);
@@ -460,7 +466,9 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     let cd = contactFaceUp;
     if (fs.includes('top') && !fs.includes('bottom')) cd = true;
     if (fs.includes('bottom') && !fs.includes('top')) cd = false;
-    if (fs.includes('inner')) cd = false;
+    // v25.55: 'inner' override only valid for side-face pieces; on top/bottom pieces
+    // some LLMs write "inner — product-contact face (top of slab)" which must not flip direction.
+    if (fs.includes('inner') && _isSidePiece) cd = false;
     const s2    = cd ? 1 : -1;
     const cfY   = s2 * H / 2;
     const depth = Math.min(dv(dim, 'depth') || 20, H * 0.95);
@@ -515,7 +523,7 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     let cd = contactFaceUp;
     if (fs.includes('top') && !fs.includes('bottom')) cd = true;
     if (fs.includes('bottom') && !fs.includes('top')) cd = false;
-    if (fs.includes('inner')) cd = false;
+    if (fs.includes('inner') && _isSidePiece) cd = false;
     const s2 = cd ? 1 : -1, cfY = s2 * H / 2, cutCY = cfY - s2 * (sDep / 2);
     const bx = dirn === 'x_axis' ? sLen + 1 : sWid + 1;
     const bz = dirn === 'x_axis' ? sWid + 1 : sLen + 1;
@@ -586,7 +594,7 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     let cd = contactFaceUp;
     if (fs.includes('top') && !fs.includes('bottom')) cd = true;
     if (fs.includes('bottom') && !fs.includes('top')) cd = false;
-    if (fs.includes('inner')) cd = false;
+    if (fs.includes('inner') && _isSidePiece) cd = false;
     const s2    = cd ? 1 : -1;
     const cfY   = s2 * H / 2;
     const depth = Math.min(dv(dim, 'depth') || 20, H * 0.95);
@@ -621,7 +629,7 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
     let cd = contactFaceUp;
     if (fs.includes('top') && !fs.includes('bottom')) cd = true;
     if (fs.includes('bottom') && !fs.includes('top')) cd = false;
-    if (fs.includes('inner')) cd = false;
+    if (fs.includes('inner') && _isSidePiece) cd = false;
     const s2 = cd ? 1 : -1, cfY = s2 * H / 2;
     const flY  = cfY - s2 * sDep;
     const midY = cfY - s2 * sDep * 0.5;
@@ -886,7 +894,7 @@ function buildPlank(THREE: any, piece: any, contactDir: string, foamColor: strin
   const { length: L, width: W, height: H } = piece.plank_dimensions_mm;
   const cuts   = piece.cut_features ?? [];
   const openUp = contactDir === '+y';
-  return buildFoamPlank(THREE, L, W, H, foamColor, openUp, cuts);
+  return buildFoamPlank(THREE, L, W, H, foamColor, openUp, cuts, piece.face);
 }
 
 // totalBottom = max(layerOff + H) over all bottom pieces = total bottom foam stack height.
@@ -1527,7 +1535,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.53 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.55 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
