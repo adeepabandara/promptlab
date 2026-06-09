@@ -226,8 +226,11 @@ function makeOctagonalPrism(THREE: any, lenX: number, lenZ: number, height: numb
     const a = i, b = (i + 1) % N, c = i + N, d = b + N;
     idx.push(a, b, d,  a, d, c); // side quad → 2 triangles
   }
-  for (let i = 1; i < N - 1; i++) idx.push(N, N + i, N + i + 1); // top cap
-  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap (CW)
+  // v25.58: top cap winding REVERSED so normal points +Y (visible/correctly lit from above).
+  // Pts array is CW in XZ from +Y, so the original (N, N+i, N+i+1) fan gave -Y normals.
+  // Reversing to (N, N+i+1, N+i) gives CCW from above → +Y normal → correct Phong shading.
+  for (let i = 1; i < N - 1; i++) idx.push(N, N + i + 1, N + i); // top cap (fixed +Y normal)
+  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap (CW → -Y normal, outboard)
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setIndex(idx);
@@ -1532,7 +1535,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.56 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.58 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
