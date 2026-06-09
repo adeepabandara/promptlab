@@ -589,7 +589,7 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
       _ovGeo.setIndex(_ovIx);
       _ovGeo.computeVertexNormals();
       const _ovMat = new THREE.MeshBasicMaterial({
-        color: dark(THREE, foamColor, 0.25),
+        color: dark(THREE, foamColor, 0.28),
         side: THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       });
@@ -1514,7 +1514,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.64 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.65 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
