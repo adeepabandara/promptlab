@@ -161,22 +161,7 @@ function foamMat(THREE: any, foamColor: string) {
     shininess: 18,
   });
 }
-// v25.56: side walls 18% darker — visually recedes so the slab doesn't read as a flat grey
-// rectangle. Prevents the lower side-wall region from blending with the outboard face.
-function foamSideWallMat(THREE: any, foamColor: string) {
-  return new THREE.MeshPhongMaterial({
-    color: dark(THREE, foamColor, 0.82),
-    specular: new THREE.Color(0.06, 0.05, 0.04),
-    shininess: 8,
-  });
-}
-// v25.56: outboard (carton-contact) face — very dark so it reads as pressing against cardboard.
-// Uses MeshBasicMaterial to stay consistently dark regardless of light direction.
-function foamOutboardMat(THREE: any, foamColor: string) {
-  return new THREE.MeshBasicMaterial({
-    color: dark(THREE, foamColor, 0.20),
-  });
-}
+
 function cavityWallMat(THREE: any, foamColor: string, wallF = _cavWallF) {
   return new THREE.MeshPhongMaterial({
     color: dark(THREE, foamColor, wallF),
@@ -226,21 +211,13 @@ function makeOctagonalPrism(THREE: any, lenX: number, lenZ: number, height: numb
     const a = i, b = (i + 1) % N, c = i + N, d = b + N;
     idx.push(a, b, d,  a, d, c); // side quad → 2 triangles
   }
-  // v25.58: top cap winding REVERSED so normal points +Y (visible/correctly lit from above).
-  // Pts array is CW in XZ from +Y, so the original (N, N+i, N+i+1) fan gave -Y normals.
-  // Reversing to (N, N+i+1, N+i) gives CCW from above → +Y normal → correct Phong shading.
-  for (let i = 1; i < N - 1; i++) idx.push(N, N + i + 1, N + i); // top cap (fixed +Y normal)
-  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap (CW → -Y normal, outboard)
+  // v25.61: standard top cap winding (N, N+i, N+i+1) — body uses DoubleSide so
+  // Three.js auto-flips normals for back-face Phong, correct lighting without reversal.
+  for (let i = 1; i < N - 1; i++) idx.push(N, N + i, N + i + 1); // top cap (standard)
+  for (let i = 1; i < N - 1; i++) idx.push(0, i + 1, i);          // bottom cap (CW)
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
   geo.setIndex(idx);
-  // v25.56: 3 material groups — group 0 = side walls, group 1 = top cap (+hh), group 2 = bottom cap (-hh).
-  // three-bvh-csg preserves these groups through CSG operations so the body mesh can use
-  // a per-face material array: [sideWall, topCapMat, bottomCapMat, ...cutter-interior fallbacks].
-  const _sideIdxCount = N * 6, _capIdxCount = (N - 2) * 3;
-  geo.addGroup(0, _sideIdxCount, 0);
-  geo.addGroup(_sideIdxCount, _capIdxCount, 1);
-  geo.addGroup(_sideIdxCount + _capIdxCount, _capIdxCount, 2);
   geo.computeVertexNormals();
   return geo;
 }
@@ -583,31 +560,46 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
 
   // ── Pass 1: CSG — baked-transform, octagonal base if plan_chamfer ──
   const finalGeo = csgSubtractAll(THREE, L, H, W, cutters, makeFoamBodyGeo());
-  // v25.56: 3-material body matching solidGeo groups 0/1/2 (side walls / top cap / bottom cap).
-  // face='bottom': top cap (+Y) = contact face (body), bottom cap (-Y) = carton floor (outboard dark).
-  // face='top':    top cap (+Y) = carton lid face (outboard dark), bottom cap (-Y) = contact face (body).
-  // face=side:     both caps are foam-coloured (disc faces), side walls use sideWall material.
-  // Extra groups ≥3 come from CSG cutter interior faces — pad with fm as fallback so they're hidden by liners.
-  const _swM = foamSideWallMat(THREE, foamColor);
-  const _obM = foamOutboardMat(THREE, foamColor);
-  const _pFaceLC = (pieceFace ?? '').toLowerCase();
-  const _isTBFace = !['left','right','end_left','end_right','front','back','end_front','end_back'].includes(_pFaceLC);
-  let _bodyMats: any[];
-  if (!_isTBFace) {
-    _bodyMats = [_swM, fm, fm];        // side disc: both caps = body colour
-  } else if (_pFaceLC === 'bottom') {
-    _bodyMats = [_swM, fm, _obM];      // bottom piece: top=contact(body), bottom=carton(dark)
-  } else {
-    _bodyMats = [_swM, _obM, fm];      // top piece: top=carton(dark), bottom=contact(body)
-  }
-  // Pad for any extra material groups added by CSG cutters
-  const _numBodyGrps = finalGeo.groups?.length ?? 0;
-  while (_bodyMats.length < _numBodyGrps) _bodyMats.push(fm);
-  const resultMesh = new THREE.Mesh(finalGeo, _bodyMats.length > 1 ? _bodyMats : fm);
+  const resultMesh = new THREE.Mesh(finalGeo, fm);
   resultMesh.geometry.computeVertexNormals();
   resultMesh.castShadow    = true;
   resultMesh.receiveShadow = true;
   grp.add(resultMesh);
+
+  // v25.61: outboard cap overlay — dark polygon covering carton-contact face
+  // to prevent DoubleSide body from appearing as phantom grey rectangle.
+  // Added in local space inside buildFoamPlank (applies to all top/bottom pieces).
+  {
+    const _pFaceLCA = (pieceFace ?? '').toLowerCase();
+    if (_pFaceLCA === 'bottom' || _pFaceLCA === 'top') {
+      const _outY = _pFaceLCA === 'bottom' ? -H/2 : H/2;
+      const _hxA = L/2, _hzA = W/2;
+      const _cxA = (_pc && _cs > 0) ? Math.min(_cs, _hxA * 0.44) : 0;
+      const _czA = (_pc && _cs > 0) ? Math.min(_cs, _hzA * 0.44) : 0;
+      const _ovPts: [number, number][] = _cxA > 0
+        ? [[-_hxA+_cxA,-_hzA],[_hxA-_cxA,-_hzA],[_hxA,-_hzA+_czA],[_hxA,_hzA-_czA],
+           [_hxA-_cxA,_hzA],[-_hxA+_cxA,_hzA],[-_hxA,_hzA-_czA],[-_hxA,-_hzA+_cxA]]
+        : [[-_hxA,-_hzA],[_hxA,-_hzA],[_hxA,_hzA],[-_hxA,_hzA]];
+      const _ovVs: number[] = [];
+      for (const [rx, rz] of _ovPts) _ovVs.push(rx, 0, rz);
+      const _ovN = _ovPts.length;
+      const _ovIx: number[] = [];
+      for (let _i = 1; _i < _ovN - 1; _i++) _ovIx.push(0, _i, _i + 1);
+      const _ovGeo = new THREE.BufferGeometry();
+      _ovGeo.setAttribute('position', new THREE.Float32BufferAttribute(_ovVs, 3));
+      _ovGeo.setIndex(_ovIx);
+      _ovGeo.computeVertexNormals();
+      const _ovMat = new THREE.MeshBasicMaterial({
+        color: dark(THREE, foamColor, 0.25),
+        side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+      });
+      const _ovMesh = new THREE.Mesh(_ovGeo, _ovMat);
+      _ovMesh.position.y = _outY;
+      _ovMesh.renderOrder = 2;
+      grp.add(_ovMesh);
+    }
+  }
 
   // ── Pass 2: cavity liners — visible interior surfaces for depth ──
   pocketCuts.forEach((cut: any) => {
@@ -1244,18 +1236,10 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
       grp.traverse((obj:any)=>{ obj.frustumCulled = false; });
       // All planks: body mesh gets DoubleSide so foam reads as solid from any camera angle (v25.13).
       // Wall/floor materials excluded via polygonOffset flag — DoubleSide on liners caused transparency.
-      // v25.56: handle multi-material arrays (body mesh now has [sideWall, cap1, cap2, ...]).
       grp.traverse((child: any) => {
-        if (child.isMesh && child.material) {
-          if (Array.isArray(child.material)) {
-            child.material = child.material.map((m: any) => {
-              if (m && !m.polygonOffset) { const mc = m.clone(); mc.side = THREE.DoubleSide; return mc; }
-              return m;
-            });
-          } else if (!child.material.polygonOffset) {
-            child.material = child.material.clone();
-            child.material.side = THREE.DoubleSide;
-          }
+        if (child.isMesh && child.material && !child.material.polygonOffset) {
+          child.material = child.material.clone();
+          child.material.side = THREE.DoubleSide;
         }
       });
       scene.add(grp); objectsRef.current.push(grp);
@@ -1535,7 +1519,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.58 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.61 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
