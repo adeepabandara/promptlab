@@ -565,40 +565,7 @@ function buildFoamPlank(THREE: any, L: number, W: number, H: number, foamColor: 
   resultMesh.receiveShadow = true;
   grp.add(resultMesh);
 
-  // v25.61: outboard cap overlay — dark polygon covering carton-contact face
-  // to prevent DoubleSide body from appearing as phantom grey rectangle.
-  // Added in local space inside buildFoamPlank (applies to all top/bottom pieces).
-  {
-    const _pFaceLCA = (pieceFace ?? '').toLowerCase();
-    if (_pFaceLCA === 'bottom' || _pFaceLCA === 'top') {
-      const _outY = _pFaceLCA === 'bottom' ? -H/2 : H/2;
-      const _hxA = L/2, _hzA = W/2;
-      const _cxA = (_pc && _cs > 0) ? Math.min(_cs, _hxA * 0.44) : 0;
-      const _czA = (_pc && _cs > 0) ? Math.min(_cs, _hzA * 0.44) : 0;
-      const _ovPts: [number, number][] = _cxA > 0
-        ? [[-_hxA+_cxA,-_hzA],[_hxA-_cxA,-_hzA],[_hxA,-_hzA+_czA],[_hxA,_hzA-_czA],
-           [_hxA-_cxA,_hzA],[-_hxA+_cxA,_hzA],[-_hxA,_hzA-_czA],[-_hxA,-_hzA+_cxA]]
-        : [[-_hxA,-_hzA],[_hxA,-_hzA],[_hxA,_hzA],[-_hxA,_hzA]];
-      const _ovVs: number[] = [];
-      for (const [rx, rz] of _ovPts) _ovVs.push(rx, 0, rz);
-      const _ovN = _ovPts.length;
-      const _ovIx: number[] = [];
-      for (let _i = 1; _i < _ovN - 1; _i++) _ovIx.push(0, _i, _i + 1);
-      const _ovGeo = new THREE.BufferGeometry();
-      _ovGeo.setAttribute('position', new THREE.Float32BufferAttribute(_ovVs, 3));
-      _ovGeo.setIndex(_ovIx);
-      _ovGeo.computeVertexNormals();
-      const _ovMat = new THREE.MeshBasicMaterial({
-        color: dark(THREE, foamColor, 0.28),
-        side: THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
-      });
-      const _ovMesh = new THREE.Mesh(_ovGeo, _ovMat);
-      _ovMesh.position.y = _outY;
-      _ovMesh.renderOrder = 2;
-      grp.add(_ovMesh);
-    }
-  }
+  // v25.66: outboard overlay moved to buildScene (applied only to outboard piece _bIdx===0).
 
   // ── Pass 2: cavity liners — visible interior surfaces for depth ──
   pocketCuts.forEach((cut: any) => {
@@ -1333,6 +1300,34 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
           borderLine.renderOrder = 4;
           grp.add(borderLine);
         }
+        // v25.66: outboard overlay — only on the OUTBOARD piece (_bIdx===0).
+        // Moved from buildFoamPlank: inner pieces of multi-layer assemblies must NOT get overlay.
+        if (_bIdx === 0 && !_bIsSide && (_bFace === 'bottom' || _bFace === 'top')) {
+          const _ovOutLocalY = _bFace === 'bottom' ? -bH/2 : +bH/2;
+          const _ovPts3: [number, number][] = chX2 > 0
+            ? [[-bL/2+chX2,-bW/2],[bL/2-chX2,-bW/2],[bL/2,-bW/2+chZ2],[bL/2,bW/2-chZ2],
+               [bL/2-chX2,bW/2],[-bL/2+chX2,bW/2],[-bL/2,bW/2-chZ2],[-bL/2,-bW/2+chX2]]
+            : [[-bL/2,-bW/2],[bL/2,-bW/2],[bL/2,bW/2],[-bL/2,bW/2]];
+          const _ovVs3: number[] = [];
+          for (const [rx, rz] of _ovPts3) _ovVs3.push(rx, 0, rz);
+          const _ovN3 = _ovPts3.length;
+          const _ovIx3: number[] = [];
+          for (let _i = 1; _i < _ovN3 - 1; _i++) _ovIx3.push(0, _i, _i + 1);
+          const _ovGeo3 = new THREE.BufferGeometry();
+          _ovGeo3.setAttribute('position', new THREE.Float32BufferAttribute(_ovVs3, 3));
+          _ovGeo3.setIndex(_ovIx3);
+          _ovGeo3.computeVertexNormals();
+          const _ovMat3 = new THREE.MeshBasicMaterial({
+            color: dark(THREE, foamColor, 0.28),
+            side: THREE.DoubleSide,
+            polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+          });
+          const _ovMesh3 = new THREE.Mesh(_ovGeo3, _ovMat3);
+          _ovMesh3.position.set(pos[0], pos[1] + _ovOutLocalY, pos[2]);
+          _ovMesh3.renderOrder = 2;
+          scene.add(_ovMesh3);
+          objectsRef.current.push(_ovMesh3);
+        }
       }
       // Laminate: suppress inner-sheet wireframe seams (v25.10)
       const _aId = np.assembly_id || np.id;
@@ -1514,7 +1509,7 @@ export function FoamVisualizer({ conceptJson, compact = false }: FoamVisualizerP
     loop();
 
     setStatus(
-      `v25.65 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
+      `v25.66 · ${json.meta?.product_id??'product'} · ${json.meta?.cushion_type_selected??''}\n`+
       `${pieces.length} foam piece${pieces.length!==1?'s':''} · ${glbStatus}`
     );
   }
